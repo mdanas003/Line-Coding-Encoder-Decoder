@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Specification Report</title>
+<style>
+  @page { size: A4; margin: 10mm 12mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9pt; line-height: 1.25; color: #111; margin: 0; }
+  h1 { font-size: 14pt; margin: 0 0 2px; }
+  .sub { color: #555; margin-bottom: 6px; }
+  h2 { font-size: 10.5pt; margin: 6px 0 2px; border-bottom: 1px solid #ccc; padding-bottom: 1px; }
+  ul { margin: 2px 0; padding-left: 17px; } li { margin: 1px 0; }
+  code, pre { font-family: Consolas, monospace; font-size: 8.8pt; }
+  pre { background: #f3f4f6; padding: 4px 7px; margin: 3px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 8.8pt; }
+  td, th { border: 1px solid #ccc; padding: 2px 5px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+</style></head><body>
+<h1>Digital Signal Encoder and Decoder: Specification Report</h1>
+<div class="sub">Data Communication assignment · Language: C++17 · Submission date: 21 October 2026</div>
+
+<h2>1. Language and libraries</h2>
+<ul>
+  <li><b>Language:</b> C++17. <b>Compiler tested:</b> GCC 16.1 (MSYS2 UCRT64) on Windows 11. Any C++17 compiler (GCC ≥ 8, Clang ≥ 7, MSVC 2019) works.</li>
+  <li><b>Libraries:</b> only the C++ standard library (<code>&lt;vector&gt;</code>, <code>&lt;random&gt;</code>, <code>&lt;functional&gt;</code>, <code>&lt;filesystem&gt;</code>, <code>&lt;fstream&gt;</code>, <code>&lt;cmath&gt;</code>). On Windows, <code>&lt;windows.h&gt;</code> enables coloured console output. No external graphics library is needed.</li>
+  <li><b>Graphics:</b> (1) ASCII waveforms drawn in the terminal; (2) SVG plots written by the program into <code>output/report.html</code>, which any browser displays.</li>
+</ul>
+
+<h2>2. How to run</h2>
+<pre>g++ -std=c++17 -O2 -Wall -Wextra -static -o encoder src/main.cpp
+./encoder            # interactive menu
+./encoder --test     # automatic self-test (3011 checks, all pass)</pre>
+<ul><li>Menu flow: <i>digital or analog input</i> → (digital: type / random / random with 4- or 8-zero runs) or (analog: shape, A, f, fs → PCM or DM) → line code → for AMI: <i>scrambling?</i> → B8ZS / HDB3 → plots → <i>decode?</i> → decoded stream and match check. Press Enter to accept the default shown in [brackets].</li></ul>
+
+<h2>3. Design</h2>
+<table>
+<tr><th>File</th><th>Contents</th></tr>
+<tr><td><code>data_generator.hpp</code></td><td>Random stream; random stream with fixed zero runs; longest palindrome (Manacher); longest zero run</td></tr>
+<tr><td><code>line_coding.hpp</code></td><td>Abstract class <code>LineCoder</code> with one subclass per scheme (NRZ-L, NRZ-I, Manchester, Diff. Manchester, AMI, B8ZS, HDB3); waveform synthesis, CSV save/load, level measurement</td></tr>
+<tr><td><code>modulation.hpp</code></td><td>Sampling; PCM encoder/decoder (uniform mid-rise quantizer); DM encoder/decoder; slope-overload check; SQNR</td></tr>
+<tr><td><code>plot.hpp</code> / <code>main.cpp</code></td><td>ASCII and SVG plots, HTML report / menus, input validation, self-test</td></tr>
+</table>
+<ul>
+  <li><b>No if/else or switch chains:</b> menus are tables of (label, function) pairs. Schemes use runtime polymorphism (virtual <code>encode</code>/<code>decode</code>).</li>
+  <li><b>Decoding from the signal:</b> the transmitted waveform (20 samples per bit) is saved to <code>output/signal.csv</code>. The decoder reads <i>only</i> this file. It recovers the samples-per-bit from the time axis, measures the voltage at ¼ and ¾ of every bit with thresholds ±V/2, and then applies the scheme's decoding rule (level, transition, or bipolar violation).</li>
+</ul>
+
+<h2>4. Time complexity (competitive-coding part)</h2>
+<ul>
+  <li><b>Longest palindrome:</b> Manacher's algorithm, <b>O(n)</b> time and O(n) memory (brute force is O(n²)–O(n³)). The self-test checks it against brute force on 500 random strings.</li>
+  <li><b>Zero runs for scrambling:</b> one right-to-left pass builds <code>zerosFrom[i]</code> (zeros starting at i). B8ZS/HDB3 then decide each substitution in O(1). Total <b>O(n)</b>. Longest zero run: one pass, O(n).</li>
+  <li>All line codes, decoders, PCM and DM: <b>O(n)</b> in the number of bits or samples.</li>
+</ul>
+
+<h2>5. Assumptions</h2>
+<ul>
+  <li>Conventions follow Forouzan: NRZ-L 0 → +V, 1 → −V; NRZ-I inverts on 1; Manchester 0 = high→low, 1 = low→high (IEEE 802.3); Diff. Manchester always has a mid-bit transition, and a 0 adds a transition at the start.</li>
+  <li>Before the first bit, the line is at +V (NRZ-I, Diff. Manchester). For AMI/B8ZS/HDB3, the "previous pulse" is taken as −V, so the first 1 is +V.</li>
+  <li>B8ZS: 00000000 → 000VB0VB. HDB3: 0000 → 000V if the number of pulses since the last substitution is odd, else B00V.</li>
+  <li>Pulse amplitude V = 1 V; 20 samples per bit; no noise is added to the waveform.</li>
+  <li>PCM: uniform mid-rise quantizer over [−A, A], n bits per sample, MSB first. DM: staircase starts at 0; default δ = 1.2 × (max slope / fs), so no slope overload.</li>
+  <li>The "random with fixed sub-sequences" stream places the zero runs in separate slots, so they never overlap.</li>
+</ul>
+
+<h2>6. References</h2>
+<ul>
+  <li>B. A. Forouzan, <i>Data Communications and Networking</i>, 5th ed., McGraw-Hill, Ch. 4 (line coding, block coding, scrambling, PCM, DM).</li>
+  <li>G. Manacher, "A new linear-time on-line algorithm for finding the smallest initial palindrome of a string", <i>J. ACM</i> 22(3), 1975.</li>
+  <li>ITU-T Recommendation G.703: physical/electrical characteristics of hierarchical digital interfaces (HDB3, B8ZS).</li>
+  <li>cppreference.com: C++17 standard library reference. W3C SVG 1.1 specification.</li>
+</ul>
+</body></html>
